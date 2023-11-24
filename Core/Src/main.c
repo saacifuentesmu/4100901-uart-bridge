@@ -21,7 +21,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>
 
+#include "ring_buffer.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -42,7 +44,16 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+#define PACKET_LEN 27 // expected packet size
 
+uint8_t usart1_rx_buffer[PACKET_LEN];
+ring_buffer_t usart1_rb;
+
+uint8_t usart2_rx_buffer[PACKET_LEN];
+ring_buffer_t usart2_rb;
+
+uint32_t timestamp_usart1 = 0;
+uint32_t timestamp_usart2 = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -56,7 +67,39 @@ static void MX_USART1_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+int _write(int file, char *ptr, int len)
+{
+  for (uint8_t idx = 0; idx < len; idx++) {
+	  // send byte by byte in blocking mode
+	  while (LL_USART_IsActiveFlag_TXE(USART2) == 0) {
+		  // wait until Tx Empty flag becomes true
+	  }
+	  LL_USART_TransmitData8(USART2, ptr[idx]);
+  }
+  return len;
+}
 
+void user_rx_callback_usart_1(void)
+{
+	if (LL_USART_IsActiveFlag_RXNE(USART1) != 0) {
+		uint8_t data = LL_USART_ReceiveData8(USART1);
+		if (ring_buffer_put(&usart1_rb, data) == 0 && // buffer is full
+				timestamp_usart1 == 0) { // full first time
+			timestamp_usart1 = HAL_GetTick();
+		}
+	}
+}
+
+void user_rx_callback_usart_2(void)
+{
+	if (LL_USART_IsActiveFlag_RXNE(USART2) != 0) {
+		uint8_t data = LL_USART_ReceiveData8(USART2);
+		if (ring_buffer_put(&usart2_rb, data) == 0 && // buffer is full
+				timestamp_usart2 == 0) { // full first time
+			timestamp_usart2 = HAL_GetTick();
+		}
+	}
+}
 /* USER CODE END 0 */
 
 /**
@@ -90,13 +133,28 @@ int main(void)
   MX_USART2_UART_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
+  ring_buffer_init(&usart1_rb, usart1_rx_buffer, PACKET_LEN);
+  ring_buffer_init(&usart2_rb, usart2_rx_buffer, PACKET_LEN);
 
+  LL_USART_EnableIT_RXNE(USART1);
+  LL_USART_EnableIT_RXNE(USART2);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  printf("Waiting for commands...\r\n");
   while (1)
   {
+	  if (timestamp_usart1 != 0) {
+		  printf("TS1: %ld\r\n", timestamp_usart1);
+		  ring_buffer_reset(&usart1_rb); // discard data
+		  timestamp_usart1 = 0;
+	  }
+	  if (timestamp_usart2 != 0) {
+		  printf("TS2: %ld\r\n", timestamp_usart2);
+		  ring_buffer_reset(&usart2_rb); // discard data
+		  timestamp_usart2 = 0;
+	  }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
